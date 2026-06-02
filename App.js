@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, Platform, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 // Import Screens
@@ -8,9 +8,40 @@ import CreateOmrScreen from './src/screens/CreateOmrScreen';
 import ScanSheetScreen from './src/screens/ScanSheetScreen';
 import FetchTestScreen from './src/screens/FetchTestScreen';
 import QueueScreen from './src/screens/QueueScreen';
+import LoginScreen from './src/screens/LoginScreen';
+
+import StorageService from './src/services/StorageService';
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
   const [currentScreen, setCurrentScreen] = useState('Home');
+
+  useEffect(() => {
+    checkUserSession();
+  }, []);
+
+  const checkUserSession = async () => {
+    try {
+      const userInfo = await StorageService.getUserInfo();
+      if (userInfo && (userInfo.role === 'admin' || userInfo.role === 'coordinator')) {
+        setUser(userInfo);
+      } else {
+        await StorageService.clearSession();
+        setUser(null);
+      }
+    } catch {
+      setUser(null);
+    } finally {
+      setLoadingAuth(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await StorageService.clearSession();
+    setUser(null);
+    setCurrentScreen('Home');
+  };
 
   // Elegant, reliable navigation emulator
   const navigation = {
@@ -23,17 +54,17 @@ export default function App() {
   const renderActiveScreen = () => {
     switch (currentScreen) {
       case 'Home':
-        return <HomeScreen navigation={navigation} />;
+        return <HomeScreen navigation={navigation} user={user} onLogout={handleLogout} />;
       case 'CreateOmr':
         return <CreateOmrScreen navigation={navigation} />;
       case 'ScanSheet':
         return <ScanSheetScreen navigation={navigation} />;
       case 'FetchTest':
-        return <FetchTestScreen navigation={navigation} />;
+        return <FetchTestScreen navigation={navigation} user={user} onLogout={handleLogout} />;
       case 'Queue':
         return <QueueScreen navigation={navigation} />;
       default:
-        return <HomeScreen navigation={navigation} />;
+        return <HomeScreen navigation={navigation} user={user} onLogout={handleLogout} />;
     }
   };
 
@@ -44,6 +75,22 @@ export default function App() {
     { key: 'FetchTest', label: 'Sync', icon: '🔄' },
     { key: 'Queue', label: 'Queue', icon: '📤' }
   ];
+
+  if (loadingAuth) {
+    return (
+      <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <StatusBar style="light" />
+        <ActivityIndicator size="large" color="#38bdf8" />
+      </SafeAreaView>
+    );
+  }
+
+  // Gate the entire OMR application behind authentication
+  if (!user) {
+    return (
+      <LoginScreen onLoginSuccess={(loggedUser) => setUser(loggedUser)} />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>

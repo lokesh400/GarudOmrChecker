@@ -5,7 +5,6 @@ import {
   View,
   TextInput,
   TouchableOpacity,
-  FlatList,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
@@ -16,13 +15,7 @@ import { StatusBar } from 'expo-status-bar';
 import ApiService from '../services/ApiService';
 import StorageService from '../services/StorageService';
 
-export default function FetchTestScreen() {
-  // Settings & Authentication
-  const [backendUrl, setBackendUrl] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [user, setUser] = useState(null);
-  
+export default function FetchTestScreen({ user, onLogout }) {
   // Tests List State
   const [tests, setTests] = useState([]);
   const [downloadIds, setDownloadIds] = useState([]);
@@ -31,85 +24,25 @@ export default function FetchTestScreen() {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    loadSettingsAndSession();
+    loadSession();
   }, []);
 
-  const loadSettingsAndSession = async () => {
-    const url = await StorageService.getBackendUrl();
-    const userInfo = await StorageService.getUserInfo();
+  const loadSession = async () => {
     const localTests = await StorageService.getDownloadedTests();
-
-    setBackendUrl(url);
-    setUser(userInfo);
     setDownloadIds(localTests.map((t) => t._id));
-
-    if (url) {
-      setLoading(true);
-      try {
-        const list = await ApiService.getPublishedTests();
-        setTests(list);
-      } catch {
-        // Silent catch on autostart in case endpoint is inactive
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
-
-  const handleSaveUrl = async () => {
-    if (!backendUrl.trim()) return;
-    const success = await StorageService.setBackendUrl(backendUrl);
-    if (success) {
-      Alert.alert('Success', 'Backend URL saved successfully');
-      fetchTests(); // Refresh tests lists from the new endpoint
-    }
-  };
-
-  const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please enter both email and password');
-      return;
-    }
 
     setLoading(true);
     try {
-      const res = await ApiService.login(email, password);
-      const loggedUser = res.user;
-
-      if (loggedUser.role !== 'admin' && loggedUser.role !== 'coordinator') {
-        // Logout immediately to clear session token if they aren't authorized
-        await StorageService.clearSession();
-        setUser(null);
-        setTests([]);
-        Alert.alert('Access Denied', 'Only Admins or Coordinators can access this sync portal.');
-        return;
-      }
-
-      setUser(loggedUser);
-      Alert.alert('Success', `Logged in as ${loggedUser.name}`);
-      
-      // Fetch tests using the updated session cookie
-      setLoading(true);
       const list = await ApiService.getPublishedTests();
       setTests(list);
-    } catch (err) {
-      Alert.alert('Login Failed', err.message || 'Check credentials and backend URL');
+    } catch {
+      // Silent catch on autostart in case endpoint is inactive
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = async () => {
-    await StorageService.clearSession();
-    setUser(null);
-    setTests([]);
-  };
-
   const fetchTests = async () => {
-    if (!user || (user.role !== 'admin' && user.role !== 'coordinator')) {
-      Alert.alert('Access Denied', 'Please log in with an Admin or Coordinator account first.');
-      return;
-    }
     setLoading(true);
     try {
       const list = await ApiService.getPublishedTests();
@@ -162,8 +95,6 @@ export default function FetchTestScreen() {
     t.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const isAuthorized = user && (user.role === 'admin' || user.role === 'coordinator');
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -175,153 +106,99 @@ export default function FetchTestScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Backend Configuration Card */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Backend Endpoint URL</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={[styles.input, { flex: 1, marginBottom: 0 }]}
-              value={backendUrl}
-              onChangeText={setBackendUrl}
-              placeholder="e.g. http://192.168.1.XX:3000/api"
-              placeholderTextColor="#64748b"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveUrl}>
-              <Text style={styles.saveBtnText}>Save</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Authentication Card */}
-        {!user ? (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Sync Portal Login</Text>
-            <TextInput
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Admin or Coordinator Email"
-              placeholderTextColor="#64748b"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TextInput
-              style={styles.input}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Password"
-              placeholderTextColor="#64748b"
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity style={styles.loginBtn} onPress={handleLogin} disabled={loading}>
-              <Text style={styles.loginBtnText}>{loading ? 'Authenticating...' : 'Log In'}</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
+        {/* Welcome back / Logout Card */}
+        {user && (
           <View style={styles.card}>
             <View style={styles.userRow}>
               <View>
-                <Text style={styles.userWelcome}>Welcome back,</Text>
+                <Text style={styles.userWelcome}>Authenticated Staff,</Text>
                 <Text style={styles.userName}>{user.name}</Text>
                 <Text style={styles.userRole}>{user.role.toUpperCase()} ACCESS</Text>
               </View>
-              <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+              <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
                 <Text style={styles.logoutBtnText}>Logout</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
 
-        {/* Tests Downloader Section (Only visible for authorized admin/coordinators) */}
-        {isAuthorized ? (
-          <View style={styles.testsSection}>
-            <View style={styles.testsHeader}>
-              <Text style={styles.sectionTitle}>Available Tests</Text>
-              <TouchableOpacity onPress={fetchTests} disabled={loading}>
-                <Text style={styles.refreshText}>{loading ? 'Refreshing...' : 'Refresh List'}</Text>
-              </TouchableOpacity>
-            </View>
+        {/* Tests Downloader Section */}
+        <View style={styles.testsSection}>
+          <View style={styles.testsHeader}>
+            <Text style={styles.sectionTitle}>Available Tests</Text>
+            <TouchableOpacity onPress={fetchTests} disabled={loading}>
+              <Text style={styles.refreshText}>{loading ? 'Refreshing...' : 'Refresh List'}</Text>
+            </TouchableOpacity>
+          </View>
 
-            <TextInput
-              style={styles.searchInput}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Search test paper by title..."
-              placeholderTextColor="#64748b"
-            />
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search test paper by title..."
+            placeholderTextColor="#64748b"
+          />
 
-            {loading && tests.length === 0 ? (
-              <ActivityIndicator style={{ marginTop: 20 }} size="large" color="#38bdf8" />
-            ) : (
-              <View style={styles.listContainer}>
-                {filteredTests.length === 0 ? (
-                  <Text style={styles.emptyText}>No published tests found.</Text>
-                ) : (
-                  filteredTests.map((item) => {
-                    const isDownloaded = downloadIds.includes(item._id);
-                    const isLoading = actionLoading === item._id;
+          {loading && tests.length === 0 ? (
+            <ActivityIndicator style={{ marginTop: 20 }} size="large" color="#38bdf8" />
+          ) : (
+            <View style={styles.listContainer}>
+              {filteredTests.length === 0 ? (
+                <Text style={styles.emptyText}>No published tests found.</Text>
+              ) : (
+                filteredTests.map((item) => {
+                  const isDownloaded = downloadIds.includes(item._id);
+                  const isLoading = actionLoading === item._id;
 
-                    return (
-                      <View key={item._id} style={styles.testItem}>
-                        <View style={styles.testMeta}>
-                          <Text style={styles.testName} numberOfLines={2}>{item.name}</Text>
-                          <View style={styles.badgesRow}>
-                            <View style={styles.badge}>
-                              <Text style={styles.badgeText}>{item.totalQuestions} Questions</Text>
-                            </View>
-                            <View style={[styles.badge, { backgroundColor: 'rgba(99, 102, 241, 0.15)' }]}>
-                              <Text style={[styles.badgeText, { color: '#818cf8' }]}>{item.duration} Mins</Text>
-                            </View>
-                            {isDownloaded && (
-                              <View style={[styles.badge, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-                                <Text style={[styles.badgeText, { color: '#10b981' }]}>Offline Ready</Text>
-                              </View>
-                            )}
+                  return (
+                    <View key={item._id} style={styles.testItem}>
+                      <View style={styles.testMeta}>
+                        <Text style={styles.testName} numberOfLines={2}>{item.name}</Text>
+                        <View style={styles.badgesRow}>
+                          <View style={styles.badge}>
+                            <Text style={styles.badgeText}>{item.totalQuestions} Questions</Text>
                           </View>
-                        </View>
-                        
-                        <View style={styles.actionsCell}>
-                          {isLoading ? (
-                            <ActivityIndicator size="small" color="#38bdf8" />
-                          ) : !isDownloaded ? (
-                            <TouchableOpacity
-                              style={styles.downloadBtn}
-                              onPress={() => handleDownload(item._id)}
-                            >
-                              <Text style={styles.downloadBtnText}>Sync Offline</Text>
-                            </TouchableOpacity>
-                          ) : (
-                            <TouchableOpacity
-                              style={styles.deleteBtn}
-                              onPress={() => handleDeleteOffline(item._id)}
-                            >
-                              <Text style={styles.deleteBtnText}>Remove</Text>
-                            </TouchableOpacity>
+                          <View style={[styles.badge, { backgroundColor: 'rgba(99, 102, 241, 0.15)' }]}>
+                            <Text style={[styles.badgeText, { color: '#818cf8' }]}>{item.duration} Mins</Text>
+                          </View>
+                          {isDownloaded && (
+                            <View style={[styles.badge, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                              <Text style={[styles.badgeText, { color: '#10b981' }]}>Offline Ready</Text>
+                            </View>
                           )}
                         </View>
                       </View>
-                    );
-                  })
-                )}
-              </View>
-            )}
-          </View>
-        ) : (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>Please log in with Admin or Coordinator credentials to sync offline tests.</Text>
-          </View>
-        )}
+                      
+                      <View style={styles.actionsCell}>
+                        {isLoading ? (
+                          <ActivityIndicator size="small" color="#38bdf8" />
+                        ) : !isDownloaded ? (
+                          <TouchableOpacity
+                            style={styles.downloadBtn}
+                            onPress={() => handleDownload(item._id)}
+                          >
+                            <Text style={styles.downloadBtnText}>Sync Offline</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.deleteBtn}
+                            onPress={() => handleDeleteOffline(item._id)}
+                          >
+                            <Text style={styles.deleteBtnText}>Remove</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          )}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
-
-
 
 const styles = StyleSheet.create({
   container: {

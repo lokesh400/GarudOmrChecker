@@ -7,7 +7,6 @@ import HomeScreen from './src/screens/HomeScreen';
 import CreateOmrScreen from './src/screens/CreateOmrScreen';
 import ScanSheetScreen from './src/screens/ScanSheetScreen';
 import FetchTestScreen from './src/screens/FetchTestScreen';
-import QueueScreen from './src/screens/QueueScreen';
 import LoginScreen from './src/screens/LoginScreen';
 
 import StorageService from './src/services/StorageService';

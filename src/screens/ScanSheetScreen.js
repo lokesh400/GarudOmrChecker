@@ -152,17 +152,27 @@ export default function ScanSheetScreen() {
     setShowVerification(true);
   };
 
-  // --- Save to queue ---
   const saveAttemptToQueue = async () => {
     if (!selectedTest || !gradedResult) return;
     if (rollNumber.includes('?') || rollNumber.length !== 8) {
       Alert.alert('Invalid Roll Number', 'Please enter a valid 8-digit roll number'); return;
     }
     const record = {
-      testId: selectedTest._id, testName: selectedTest.name, rollNo: rollNumber.trim(),
-      answers: gradedResult.answers.map(a => ({ questionId: a.questionId, sectionId: a.sectionId, selectedOption: a.selectedOption })),
-      totalScore: gradedResult.totalScore, maxScore: gradedResult.maxScore,
-      correctCount: gradedResult.correctCount, incorrectCount: gradedResult.incorrectCount,
+      testId: selectedTest._id,
+      testName: selectedTest.name,
+      rollNo: rollNumber.trim(),
+      answers: gradedResult.answers.map(a => ({
+        questionId: a.questionId,
+        sectionId: a.sectionId,
+        selectedOption: a.selectedOption || '-',
+        correctOption: a.correctOption || '-',
+        isCorrect: a.isCorrect,
+        marksObtained: a.marksObtained
+      })),
+      totalScore: gradedResult.totalScore,
+      maxScore: gradedResult.maxScore,
+      correctCount: gradedResult.correctCount,
+      incorrectCount: gradedResult.incorrectCount,
       scannedAt: new Date().toISOString(),
     };
     const ok = await StorageService.addToQueue(record);

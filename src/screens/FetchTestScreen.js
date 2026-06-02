@@ -12,6 +12,8 @@ import {
   ScrollView
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import ApiService from '../services/ApiService';
 import StorageService from '../services/StorageService';
 
@@ -19,6 +21,8 @@ export default function FetchTestScreen({ user, onLogout }) {
   // Tests List State
   const [tests, setTests] = useState([]);
   const [downloadIds, setDownloadIds] = useState([]);
+  const [offlineTests, setOfflineTests] = useState([]);
+  const [localScans, setLocalScans] = useState([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -27,9 +31,20 @@ export default function FetchTestScreen({ user, onLogout }) {
     loadSession();
   }, []);
 
+  const loadOfflineData = async () => {
+    try {
+      const local = await StorageService.getDownloadedTests();
+      setOfflineTests(local);
+      setDownloadIds(local.map((t) => t._id));
+      const scans = await StorageService.getOfflineQueue();
+      setLocalScans(scans);
+    } catch (err) {
+      console.error('[LOAD OFFLINE DATA ERROR]:', err);
+    }
+  };
+
   const loadSession = async () => {
-    const localTests = await StorageService.getDownloadedTests();
-    setDownloadIds(localTests.map((t) => t._id));
+    await loadOfflineData();
 
     setLoading(true);
     try {
@@ -47,6 +62,7 @@ export default function FetchTestScreen({ user, onLogout }) {
     try {
       const list = await ApiService.getPublishedTests();
       setTests(list);
+      await loadOfflineData();
     } catch (err) {
       Alert.alert('Error', 'Failed to fetch tests: ' + err.message);
     } finally {
@@ -63,8 +79,8 @@ export default function FetchTestScreen({ user, onLogout }) {
       // 2. Save detailed test offline
       await StorageService.saveDownloadedTest(testDetail);
 
-      // Update state
-      setDownloadIds((prev) => [...prev, testId]);
+      // Update offline state
+      await loadOfflineData();
       Alert.alert('Success', `Test downloaded successfully for offline scanning!`);
     } catch (err) {
       Alert.alert('Download Failed', err.message || 'Something went wrong');
@@ -84,11 +100,264 @@ export default function FetchTestScreen({ user, onLogout }) {
           style: 'destructive',
           onPress: async () => {
             await StorageService.deleteDownloadedTest(testId);
-            setDownloadIds((prev) => prev.filter((id) => id !== testId));
+            await StorageService.deleteTestScansFromQueue(testId);
+            await loadOfflineData();
           },
         },
       ]
     );
+  };
+
+  const handleExportLocal = async (testId, format) => {
+    const offlineTestDetail = offlineTests.find(t => t._id === testId);
+    if (!offlineTestDetail) {
+      Alert.alert('Offline Data Missing', 'Offline test layout not found. Please sync/download the test offline first!');
+      return;
+    }
+
+    const scansForTest = localScans.filter((s) => s.testId === testId);
+    if (scansForTest.length === 0) {
+      Alert.alert('No Scans Found', 'There are no graded offline OMR scans saved for this test yet. Go to the Scan tab to check sheets first!');
+      return;
+    }
+
+    try {
+      // Sort scans by totalScore descending for leaderboard ranks
+      const sortedScans = [...scansForTest].sort((a, b) => b.totalScore - a.totalScore);
+      const testSections = offlineTestDetail.sections || [];
+
+      const rowsData = sortedScans.map((r, index) => {
+        const studentName = `Student Roll ${r.rollNo}`;
+        const studentEmail = `${r.rollNo}@garud.com`;
+        const rollNo = r.rollNo || '—';
+        const batchName = 'Offline';
+
+        const sectionStats = {};
+        let totalCorrect = 0;
+        let totalIncorrect = 0;
+        let totalAttempted = 0;
+        let totalPositive = 0;
+        let totalNegative = 0;
+
+        testSections.forEach((sec) => {
+          const secIdStr = sec._id.toString();
+          let secCorrect = 0;
+          let secIncorrect = 0;
+          let secAttempted = 0;
+          let secPositiveScore = 0;
+          let secNegativeScore = 0;
+
+          sec.questions.forEach((qEntry) => {
+            const qIdStr = qEntry.question?._id ? qEntry.question._id.toString() : (qEntry.question || '').toString();
+            const ans = (r.answers || []).find(a => 
+              a.questionId && a.questionId.toString() === qIdStr &&
+              a.sectionId && a.sectionId.toString() === secIdStr
+            );
+
+            if (ans) {
+              const isAttempt = !!(
+                ans.selectedOption && ans.selectedOption !== '-' && ans.selectedOption !== ''
+              );
+
+              if (isAttempt) {
+                secAttempted++;
+                if (ans.isCorrect) {
+                  secCorrect++;
+                  secPositiveScore += qEntry.positiveMarks || 4;
+                } else {
+                  secIncorrect++;
+                  secNegativeScore += qEntry.negativeMarks || 1;
+                }
+              }
+            }
+          });
+
+          totalCorrect += secCorrect;
+          totalIncorrect += secIncorrect;
+          totalAttempted += secAttempted;
+          totalPositive += secPositiveScore;
+          totalNegative += secNegativeScore;
+
+          sectionStats[sec.name] = {
+            correct: secCorrect,
+            incorrect: secIncorrect,
+            attempted: secAttempted,
+            score: secPositiveScore - secNegativeScore
+          };
+        });
+
+        const rawScore = r.totalScore;
+        const maxScore = r.maxScore || 0;
+        const pct = maxScore > 0 ? ((rawScore / maxScore) * 100).toFixed(2) : '0.00';
+
+        return {
+          rank: index + 1,
+          studentName,
+          studentEmail,
+          rollNo,
+          batchName,
+          sectionStats,
+          totalCorrect,
+          totalIncorrect,
+          totalAttempted,
+          totalPositive,
+          totalNegative,
+          rawScore,
+          maxScore,
+          pct
+        };
+      });
+
+      if (format === 'csv') {
+        let csvHeader = 'Rank,Roll Number,Student Name,Email,Batch';
+        testSections.forEach(sec => {
+          csvHeader += `,${sec.name} Correct,${sec.name} Incorrect,${sec.name} Attempted,${sec.name} Score`;
+        });
+        csvHeader += ',Total Correct,Total Incorrect,Total Attempted,Total Positive Marks,Total Negative Marks,Raw Score,Max Score,Percentage (%)\n';
+
+        let csvContent = csvHeader;
+        rowsData.forEach(row => {
+          let line = `"${row.rank}","${row.rollNo}","${row.studentName}","${row.studentEmail}","${row.batchName}"`;
+          testSections.forEach(sec => {
+            const stats = row.sectionStats[sec.name];
+            line += `,"${stats.correct}","${stats.incorrect}","${stats.attempted}","${stats.score}"`;
+          });
+          line += `,"${row.totalCorrect}","${row.totalIncorrect}","${row.totalAttempted}","${row.totalPositive}","${row.totalNegative}","${row.rawScore}","${row.maxScore}","${row.pct}"\n`;
+          csvContent += line;
+        });
+
+        const filename = `results-${offlineTestDetail.name.replace(/\s+/g, '_')}.csv`;
+        const fileUri = FileSystem.documentDirectory + filename;
+        await FileSystem.writeAsStringAsync(fileUri, csvContent, { encoding: 'utf8' });
+        await Sharing.shareAsync(fileUri, { dialogTitle: 'Export CSV Results' });
+      } else if (format === 'excel') {
+        let html = `
+          <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+          <head>
+            <style>
+              table { border-collapse: collapse; font-family: sans-serif; font-size: 10pt; }
+              td, th { border: 1px solid #cbd5e1; padding: 6px 10px; text-align: center; }
+              .header-title { background-color: #1e3a8a; color: #ffffff; font-size: 14pt; font-weight: bold; height: 35px; text-align: left; }
+              .meta-row { background-color: #f8fafc; font-size: 9pt; color: #64748b; text-align: left; }
+              .col-hdr { background-color: #334155; color: #ffffff; font-weight: bold; }
+              .sec-hdr { background-color: #475569; color: #ffffff; font-weight: bold; }
+              .rank-1 { background-color: #fef08a; font-weight: bold; }
+              .rank-2 { background-color: #f3f4f6; font-weight: bold; }
+              .rank-3 { background-color: #ffedd5; font-weight: bold; }
+              .stat-correct { background-color: #dcfce7; color: #15803d; }
+              .stat-incorrect { background-color: #fee2e2; color: #b91c1c; }
+              .stat-attempted { background-color: #faf5ff; color: #6b21a8; }
+              .stat-score { background-color: #f8fafc; font-weight: bold; }
+              .overall-cell { background-color: #eff6ff; font-weight: bold; }
+              .text-left { text-align: left; }
+            </style>
+          </head>
+          <body>
+            <table>
+              <tr>
+                <th colspan="${5 + testSections.length * 4 + 8}" class="header-title">🦅 GARUD CLASSES — OMR TEST RESULTS LEADERBOARD</th>
+              </tr>
+              <tr class="meta-row">
+                <td colspan="${5 + testSections.length * 4 + 8}">
+                  <strong>Test Name:</strong> ${offlineTestDetail.name} | 
+                  <strong>Exported At:</strong> ${new Date().toLocaleString()} | 
+                  <strong>Total Scans:</strong> ${rowsData.length}
+                </td>
+              </tr>
+              <tr>
+                <th rowspan="2" class="col-hdr">Rank</th>
+                <th rowspan="2" class="col-hdr">Roll Number</th>
+                <th rowspan="2" class="col-hdr">Student Name</th>
+                <th rowspan="2" class="col-hdr">Email</th>
+                <th rowspan="2" class="col-hdr">Batch</th>
+        `;
+
+        testSections.forEach(sec => {
+          html += `<th colspan="4" class="sec-hdr">${sec.name}</th>`;
+        });
+
+        html += `
+                <th colspan="8" class="col-hdr" style="background-color: #1d4ed8;">Overall Performance Summary</th>
+              </tr>
+              <tr>
+        `;
+
+        testSections.forEach(() => {
+          html += `
+            <th class="col-hdr">Correct</th>
+            <th class="col-hdr">Incorrect</th>
+            <th class="col-hdr">Attempted</th>
+            <th class="col-hdr">Score</th>
+          `;
+        });
+
+        html += `
+                <th class="col-hdr" style="background-color: #1e40af;">Total Correct</th>
+                <th class="col-hdr" style="background-color: #1e40af;">Total Incorrect</th>
+                <th class="col-hdr" style="background-color: #1e40af;">Total Attempted</th>
+                <th class="col-hdr" style="background-color: #1e40af;">Positive Marks</th>
+                <th class="col-hdr" style="background-color: #b91c1c;">Negative Marks</th>
+                <th class="col-hdr" style="background-color: #1e40af;">Raw Score</th>
+                <th class="col-hdr" style="background-color: #1e40af;">Max Score</th>
+                <th class="col-hdr" style="background-color: #1e40af;">Accuracy (%)</th>
+              </tr>
+        `;
+
+        rowsData.forEach(row => {
+          let rankClass = '';
+          if (row.rank === 1) rankClass = ' class="rank-1"';
+          else if (row.rank === 2) rankClass = ' class="rank-2"';
+          else if (row.rank === 3) rankClass = ' class="rank-3"';
+
+          html += `
+            <tr>
+              <td${rankClass}>${row.rank}</td>
+              <td>'${row.rollNo}</td>
+              <td class="text-left">${row.studentName}</td>
+              <td class="text-left">${row.studentEmail}</td>
+              <td>${row.batchName}</td>
+          `;
+
+          testSections.forEach(sec => {
+            const stats = row.sectionStats[sec.name];
+            html += `
+              <td class="stat-correct">${stats.correct}</td>
+              <td class="stat-incorrect">${stats.incorrect}</td>
+              <td class="stat-attempted">${stats.attempted}</td>
+              <td class="stat-score">${stats.score}</td>
+            `;
+          });
+
+          const pctStyle = parseFloat(row.pct) >= 60.0 ? 'color: #166534; background-color: #dcfce7;' : 'color: #991b1b; background-color: #fee2e2;';
+
+          html += `
+              <td class="overall-cell">${row.totalCorrect}</td>
+              <td class="overall-cell">${row.totalIncorrect}</td>
+              <td class="overall-cell">${row.totalAttempted}</td>
+              <td class="overall-cell" style="color: #166534;">+${row.totalPositive}</td>
+              <td class="overall-cell" style="color: #b91c1c;">-${row.totalNegative}</td>
+              <td class="overall-cell" style="font-weight: bold; background-color: #dbeafe;">${row.rawScore}</td>
+              <td class="overall-cell">${row.maxScore}</td>
+              <td class="overall-cell" style="${pctStyle}">${row.pct}%</td>
+            </tr>
+          `;
+        });
+
+        html += `
+            </table>
+          </body>
+          </html>
+        `;
+
+        const filename = `results-${offlineTestDetail.name.replace(/\s+/g, '_')}.xls`;
+        const fileUri = FileSystem.documentDirectory + filename;
+        await FileSystem.writeAsStringAsync(fileUri, html, { encoding: 'utf8' });
+        await Sharing.shareAsync(fileUri, { dialogTitle: 'Export Excel Results' });
+      }
+    } catch (err) {
+      console.error('[EXPORT LOCAL ERROR]:', err);
+      Alert.alert('Export Failed', 'An error occurred while compiling offline results: ' + err.message);
+    }
   };
 
   const filteredTests = (tests || []).filter((t) =>
@@ -151,43 +420,72 @@ export default function FetchTestScreen({ user, onLogout }) {
                   const isLoading = actionLoading === item._id;
 
                   return (
-                    <View key={item._id} style={styles.testItem}>
-                      <View style={styles.testMeta}>
-                        <Text style={styles.testName} numberOfLines={2}>{item.name}</Text>
-                        <View style={styles.badgesRow}>
-                          <View style={styles.badge}>
-                            <Text style={styles.badgeText}>{item.totalQuestions} Questions</Text>
-                          </View>
-                          <View style={[styles.badge, { backgroundColor: 'rgba(99, 102, 241, 0.15)' }]}>
-                            <Text style={[styles.badgeText, { color: '#818cf8' }]}>{item.duration} Mins</Text>
-                          </View>
-                          {isDownloaded && (
-                            <View style={[styles.badge, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-                              <Text style={[styles.badgeText, { color: '#10b981' }]}>Offline Ready</Text>
+                    <View key={item._id} style={[styles.testItem, isDownloaded && styles.testItemDownloaded]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <View style={styles.testMeta}>
+                          <Text style={styles.testName} numberOfLines={2}>{item.name}</Text>
+                          <View style={styles.badgesRow}>
+                            <View style={styles.badge}>
+                              <Text style={styles.badgeText}>{item.totalQuestions} Questions</Text>
                             </View>
+                            <View style={[styles.badge, { backgroundColor: 'rgba(99, 102, 241, 0.15)' }]}>
+                              <Text style={[styles.badgeText, { color: '#818cf8' }]}>{item.duration} Mins</Text>
+                            </View>
+                            {isDownloaded && (
+                              <View style={[styles.badge, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                                <Text style={[styles.badgeText, { color: '#10b981' }]}>Offline Ready</Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                        
+                        <View style={styles.actionsCell}>
+                          {isLoading ? (
+                            <ActivityIndicator size="small" color="#38bdf8" />
+                          ) : !isDownloaded ? (
+                            <TouchableOpacity
+                              style={styles.downloadBtn}
+                              onPress={() => handleDownload(item._id)}
+                            >
+                              <Text style={styles.downloadBtnText}>Sync Offline</Text>
+                            </TouchableOpacity>
+                          ) : (
+                            <TouchableOpacity
+                              style={styles.deleteBtn}
+                              onPress={() => handleDeleteOffline(item._id)}
+                            >
+                              <Text style={styles.deleteBtnText}>Remove</Text>
+                            </TouchableOpacity>
                           )}
                         </View>
                       </View>
-                      
-                      <View style={styles.actionsCell}>
-                        {isLoading ? (
-                          <ActivityIndicator size="small" color="#38bdf8" />
-                        ) : !isDownloaded ? (
-                          <TouchableOpacity
-                            style={styles.downloadBtn}
-                            onPress={() => handleDownload(item._id)}
-                          >
-                            <Text style={styles.downloadBtnText}>Sync Offline</Text>
-                          </TouchableOpacity>
-                        ) : (
-                          <TouchableOpacity
-                            style={styles.deleteBtn}
-                            onPress={() => handleDeleteOffline(item._id)}
-                          >
-                            <Text style={styles.deleteBtnText}>Remove</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
+
+                      {isDownloaded && (() => {
+                        const scansCount = localScans.filter((s) => s.testId === item._id).length;
+                        return (
+                          <View style={styles.downloadedDetails}>
+                            <Text style={styles.scansCountText}>
+                              📊 {scansCount} Graded Offline Sheet{scansCount !== 1 ? 's' : ''}
+                            </Text>
+                            {scansCount > 0 && (
+                              <View style={styles.exportButtonsRow}>
+                                <TouchableOpacity
+                                  style={styles.exportBtnCsv}
+                                  onPress={() => handleExportLocal(item._id, 'csv')}
+                                >
+                                  <Text style={styles.exportBtnCsvText}>CSV Export</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.exportBtnExcel}
+                                  onPress={() => handleExportLocal(item._id, 'excel')}
+                                >
+                                  <Text style={styles.exportBtnExcelText}>Excel Export</Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })()}
                     </View>
                   );
                 })
@@ -357,6 +655,57 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  testItemDownloaded: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: 'rgba(56, 189, 248, 0.15)',
+  },
+  downloadedDetails: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+    paddingTop: 12,
+    marginTop: 4,
+    gap: 10,
+  },
+  scansCountText: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '700',
+  },
+  exportButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  exportBtnCsv: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  exportBtnCsvText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  exportBtnExcel: {
+    flex: 1,
+    backgroundColor: '#eab308',
+    borderRadius: 10,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  exportBtnExcelText: {
+    color: '#0f172a',
+    fontSize: 11,
+    fontWeight: '800',
   },
   testMeta: {
     flex: 1,

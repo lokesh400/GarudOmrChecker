@@ -52,7 +52,7 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
             <Text style={styles.statVal}>{stats.queueCount}</Text>
-            <Text style={styles.statLabel}>Pending Syncs</Text>
+            <Text style={styles.statLabel}>Local Scans</Text>
           </View>
           
           <View style={[styles.statCard, styles.violetCard]}>
@@ -77,19 +77,7 @@ export default function HomeScreen({ navigation }) {
             <Text style={styles.hubItemDesc}>Generate printable PDF OMR grids up to 200 Qs.</Text>
           </TouchableOpacity>
 
-          {/* Action 2: Scan OMR Sheet */}
-          <TouchableOpacity
-            style={styles.hubItem}
-            onPress={() => navigation.navigate('ScanSheet')}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
-              <Text style={[styles.iconText, { color: '#10b981' }]}>📸</Text>
-            </View>
-            <Text style={styles.hubItemTitle}>Scan OMR Sheet</Text>
-            <Text style={styles.hubItemDesc}>Grading with high-precision corner CV warping.</Text>
-          </TouchableOpacity>
-
-          {/* Action 3: Download Tests */}
+          {/* Action 2: Sync & Login */}
           <TouchableOpacity
             style={styles.hubItem}
             onPress={() => navigation.navigate('FetchTest')}
@@ -101,16 +89,20 @@ export default function HomeScreen({ navigation }) {
             <Text style={styles.hubItemDesc}>Download papers offline and configure server IP.</Text>
           </TouchableOpacity>
 
-          {/* Action 4: Sync Queue */}
+          {/* Action 3: Scan OMR Sheet - Full Width Premium Hub Item */}
           <TouchableOpacity
-            style={styles.hubItem}
-            onPress={() => navigation.navigate('Queue')}
+            style={[styles.hubItem, { width: width - 48, minHeight: 120 }]}
+            onPress={() => navigation.navigate('ScanSheet')}
           >
-            <View style={[styles.iconContainer, { backgroundColor: 'rgba(99, 102, 241, 0.1)' }]}>
-              <Text style={[styles.iconText, { color: '#6366f1' }]}>📤</Text>
+            <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+              <View style={[styles.iconContainer, { backgroundColor: 'rgba(16, 185, 129, 0.1)', marginBottom: 0 }]}>
+                <Text style={[styles.iconText, { color: '#10b981' }]}>📸</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.hubItemTitle}>Scan & Grade OMR Sheet</Text>
+                <Text style={styles.hubItemDesc}>Instantly grade sheets offline using high-speed computer vision warping and bubble filled ratio recognition.</Text>
+              </View>
             </View>
-            <Text style={styles.hubItemTitle}>Sync Queue</Text>
-            <Text style={styles.hubItemDesc}>Bulk upload locally-saved marks to Garud portal.</Text>
           </TouchableOpacity>
         </View>
 

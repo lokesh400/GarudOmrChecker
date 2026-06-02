@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // =========================================================================
 // CONFIGURATION: EDIT THIS URL TO MATCH YOUR RUNNING PORTAL ENDPOINT
 // =========================================================================
-export const HARDCODED_BACKEND_URL = 'http://172.22.206.198:5000/api';
+export const HARDCODED_BACKEND_URL = 'https://testportal.garudclasses.com/api';
 
 const KEYS = {
   BACKEND_URL: 'garud_omr_backend_url',

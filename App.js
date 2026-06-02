@@ -61,8 +61,6 @@ export default function App() {
         return <ScanSheetScreen navigation={navigation} />;
       case 'FetchTest':
         return <FetchTestScreen navigation={navigation} user={user} onLogout={handleLogout} />;
-      case 'Queue':
-        return <QueueScreen navigation={navigation} />;
       default:
         return <HomeScreen navigation={navigation} user={user} onLogout={handleLogout} />;
     }
@@ -72,8 +70,7 @@ export default function App() {
     { key: 'Home', label: 'Dashboard', icon: '🏠' },
     { key: 'CreateOmr', label: 'Create', icon: '📄' },
     { key: 'ScanSheet', label: 'Scan', icon: '📸' },
-    { key: 'FetchTest', label: 'Sync', icon: '🔄' },
-    { key: 'Queue', label: 'Queue', icon: '📤' }
+    { key: 'FetchTest', label: 'Sync', icon: '🔄' }
   ];
 
   if (loadingAuth) {

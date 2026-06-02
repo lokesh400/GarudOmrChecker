@@ -91,8 +91,8 @@ export default function FetchTestScreen({ user, onLogout }) {
     );
   };
 
-  const filteredTests = tests.filter((t) =>
-    t.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredTests = (tests || []).filter((t) =>
+    ((t && t.name) || '').toLowerCase().includes((searchQuery || '').toLowerCase())
   );
 
   return (

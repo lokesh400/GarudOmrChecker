@@ -10,7 +10,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  SafeAreaView
+  SafeAreaView,
+  Image
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import ApiService from '../services/ApiService';
@@ -58,8 +59,11 @@ export default function LoginScreen({ onLoginSuccess }) {
       >
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.logoSection}>
-            <View style={styles.shieldIcon}>
-              <Text style={styles.shieldText}>🦅</Text>
+            <View style={styles.logoContainer}>
+              <Image
+                source={require('../../assets/logo.png')}
+                style={styles.logoImage}
+              />
             </View>
             <Text style={styles.title}>GARUD OMR</Text>
             <Text style={styles.subtitle}>Secure Grading Engine</Text>
@@ -133,19 +137,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 40,
   },
-  shieldIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+  logoContainer: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.25)',
+    shadowColor: '#38bdf8',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
+    borderWidth: 2,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
   },
-  shieldText: {
-    fontSize: 40,
+  logoImage: {
+    width: 95,
+    height: 95,
+    resizeMode: 'contain',
   },
   title: {
     fontSize: 28,

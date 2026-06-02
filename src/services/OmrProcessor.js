@@ -268,14 +268,23 @@ export async function processOmrNative(base64, questionCount, onStatus) {
     for (let q = 1; q <= questionCount; q++) {
       const bubbles = getQuestionBubbleUV(q);
       let maxF = -1, sel = null;
+      let filledOptions = [];
 
       bubbles.forEach((pos, oi) => {
         const f = checkFill(pos.u, pos.v, 0.006);
+        if (f > 0.40) {
+          filledOptions.push(optLabels[oi]);
+        }
         if (f > 0.40 && f > maxF) {
           maxF = f;
           sel = optLabels[oi];
         }
       });
+
+      // If more than one bubble is filled, reward as negative (marked as MULTIPLE)
+      if (filledOptions.length > 1) {
+        sel = 'MULTIPLE';
+      }
 
       answers.push({ qNo: q, selectedOption: sel });
 
